@@ -34,7 +34,7 @@
 
 ---
 
-The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 18 MCP tools and matching the official extension's performance.
+The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 19 MCP tools and matching the official extension's performance.
 
 ## What's Different
 
@@ -43,7 +43,7 @@ The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extensio
 | **Domain blocklist** | 58 blocked domains across 11 categories | No blocklist. Navigate anywhere. |
 | **Browser support** | Chrome and Edge only | Any Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.) |
 | **Source code** | Closed source | Open source (MIT) |
-| **Tools** | 18 MCP tools | Same 18 MCP tools |
+| **Tools** | 19 MCP tools | Same 19 MCP tools |
 | **Performance** | Baseline | Statistically indistinguishable cold, and [measurably better](#does-it-actually-match-the-official-extension) with the techniques the open harness allows |
 
 ### Blocked Domains in the Official Extension
@@ -132,7 +132,7 @@ The codemode and hybrid servers add a fourth piece — a `wrangler dev` subproce
 
 ## Installation
 
-One flow, top to bottom, turns everything on — all 18 browser tools,
+One flow, top to bottom, turns everything on — all 19 browser tools,
 `execute_code`, and the imitation-learning recorder.
 
 ### Prerequisites
