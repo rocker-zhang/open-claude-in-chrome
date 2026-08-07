@@ -417,6 +417,7 @@ All 18 tools, identical to Claude in Chrome:
 |------|-------------|
 | `tabs_context_mcp` | Get tab group context |
 | `tabs_create_mcp` | Create new tab |
+| `tabs_close_mcp` | Close one or more tabs in the MCP group |
 | `navigate` | Navigate to URL, back, forward |
 | `computer` | Mouse, keyboard, screenshots (13 actions) |
 | `read_page` | Accessibility tree with element refs |
