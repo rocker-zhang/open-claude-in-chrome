@@ -435,19 +435,35 @@ async function takeScreenshot(tabId) {
   // it a beat to commit a frame before capturing. Only adds latency when the
   // tab was actually in the background.
   const shotTab = await chrome.tabs.get(tabId);
+
+  // A MINIMIZED window stays compositor-throttled even after its tab is
+  // selected — selecting alone wouldn't wake it and the capture would still
+  // time out. Restore a minimized window so it commits frames again. This check
+  // must run regardless of whether shotTab is the window's active tab: a
+  // minimized window still reports one active tab (active===true), so gating on
+  // !active would skip the exact case — capturing the active tab of a minimized
+  // window — that most often triggers the timeout. This is the one place we'll
+  // raise a window, and only because the user explicitly asked to capture that
+  // tab.
+  let wokeCompositor = false;
+  try {
+    const win = await chrome.windows.get(shotTab.windowId);
+    if (win && win.state === "minimized") {
+      await chrome.windows.update(win.id, { state: "normal" });
+      wokeCompositor = true;
+    }
+  } catch {}
+
   if (!shotTab.active) {
-    // A MINIMIZED window stays compositor-throttled even after its tab is
-    // selected — selecting alone wouldn't wake it and the capture would still
-    // time out. Restore a minimized window so it commits frames again. This is
-    // the one place we'll raise a window, and only because the user explicitly
-    // asked to capture that tab.
-    try {
-      const win = await chrome.windows.get(shotTab.windowId);
-      if (win && win.state === "minimized") {
-        await chrome.windows.update(win.id, { state: "normal" });
-      }
-    } catch {}
+    // Foreground a background tab to wake its throttled compositor, then give
+    // it a beat to commit a frame. Only adds latency when the tab was actually
+    // in the background.
     await activateTab(tabId);
+  }
+
+  // A beat for the compositor to commit a frame after we woke it (either by
+  // restoring a minimized window or by foregrounding a background tab).
+  if (wokeCompositor || !shotTab.active) {
     await new Promise((r) => setTimeout(r, 200));
   }
 
