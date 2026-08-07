@@ -15,6 +15,7 @@ let tabGroupTabs = new Set();
 const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
+const networkInflight = new Map(); // tabId -> active request count (for networkidle wait)
 const screenshotStore = new Map(); // imageId -> base64
 
 let heartbeatTimer = null;
@@ -284,6 +285,32 @@ async function cdp(tabId, method, params = {}) {
   );
 }
 
+// Wait until the page has made no network requests for ~quietMs, or a hard
+// timeout. The in-flight count is maintained by the Network event listener;
+// callers enable the Network domain and zero the counter before navigating.
+function waitForNetworkIdle(tabId, { quietMs = 500, timeoutMs = 15000 } = {}) {
+  return new Promise((resolve) => {
+    let idleSince = null;
+    const poll = setInterval(() => {
+      const n = (networkInflight.get(tabId) || new Set()).size;
+      if (n <= 0) {
+        if (idleSince === null) idleSince = Date.now();
+        if (Date.now() - idleSince >= quietMs) {
+          clearInterval(poll);
+          clearTimeout(bail);
+          resolve();
+        }
+      } else {
+        idleSince = null;
+      }
+    }, 100);
+    const bail = setTimeout(() => {
+      clearInterval(poll);
+      resolve();
+    }, timeoutMs);
+  });
+}
+
 // Clean up when tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabGroupTabs.delete(tabId);
@@ -293,11 +320,16 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
   consoleMessages.delete(tabId);
   networkRequests.delete(tabId);
+  networkInflight.delete(tabId);
 });
 
 // Handle user dismissing debugger bar
 chrome.debugger.onDetach.addListener((source, reason) => {
   attachedTabs.delete(source.tabId);
+  // Drop the in-flight counter too: a stale non-empty count would otherwise
+  // make a networkidle wait spin out its full hard timeout with no signal that
+  // the debugger is gone.
+  networkInflight.delete(source.tabId);
 });
 
 // --- CDP event listeners for console and network ---
@@ -356,6 +388,26 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     });
     if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
     networkRequests.set(tabId, reqs);
+    // Track in-flight so a networkidle wait can detect when a page settles.
+    // Keyed by requestId: a redirect re-emits requestWillBeSent for the SAME
+    // requestId (with a redirectResponse) and never separately finishes, so
+    // deduping on requestId keeps redirect chains from leaking +1 each.
+    // EventSource/WebSocket are long-lived STREAMS, not page-load requests:
+    // they never fire loadingFinished until closed, so counting them would make
+    // the very live-updating pages networkidle targets always burn the timeout.
+    if (!params.redirectResponse && params.type !== "EventSource" && params.type !== "WebSocket") {
+      let ids = networkInflight.get(tabId);
+      if (!ids) { ids = new Set(); networkInflight.set(tabId, ids); }
+      ids.add(params.requestId);
+    }
+  }
+
+  if (
+    (method === "Network.loadingFinished" || method === "Network.loadingFailed") &&
+    params.requestId
+  ) {
+    const ids = networkInflight.get(tabId);
+    if (ids) ids.delete(params.requestId);
   }
 });
 
@@ -672,8 +724,27 @@ const toolHandlers = {
   },
 
   async navigate(args) {
-    const { url, tabId } = args;
+    const { url, tabId, wait = "load" } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+
+    // networkidle needs the Network domain enabled from (just before) the start
+    // of the navigation so every request the page makes is counted. Default
+    // "load" keeps the old behavior and avoids attaching the debugger.
+    let useNetworkIdle = wait === "networkidle";
+    if (useNetworkIdle) {
+      try {
+        await cdp(tabId, "Network.enable");
+        networkInflight.set(tabId, new Set());
+      } catch {
+        // If attachment fails, fall back to the plain load wait rather than
+        // erroring out. Must also disable the networkidle wait itself: otherwise
+        // waitForNetworkIdle below would poll a possibly-stale non-empty counter
+        // left by an earlier networkidle navigation on this tab and burn the full
+        // 15s timeout even though no Network events are flowing now.
+        useNetworkIdle = false;
+        networkInflight.delete(tabId);
+      }
+    }
 
     if (url === "back") {
       await chrome.tabs.goBack(tabId);
@@ -711,6 +782,20 @@ const toolHandlers = {
         resolve();
       }, 10000);
     });
+
+    // Optional networkidle: after load, additionally wait until the page has
+    // made no network requests for ~500ms. Catches SPAs that fetch data after
+    // the initial HTML load. Bounded so a long-polling page can't hang us.
+    if (useNetworkIdle) {
+      await waitForNetworkIdle(tabId);
+      // Clean up after the wait: stop the Network event stream and drop the
+      // in-flight counter so a single networkidle navigation doesn't leave the
+      // tab with a permanently-enabled Network domain + attached debugger (and
+      // a stale counter) for the rest of its lifetime. read_network_requests
+      // re-enables the domain on demand, so this is safe to tear down here.
+      cdp(tabId, "Network.disable").catch(() => {});
+      networkInflight.delete(tabId);
+    }
 
     const tab = await chrome.tabs.get(tabId);
     const tabs = await chrome.tabs.query({ groupId: tabGroupId });
