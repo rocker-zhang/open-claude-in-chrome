@@ -124,7 +124,7 @@ Claude Code <--stdio MCP--> server-{codemode,hybrid}.js
 ```
 
 Three components:
-1. **Extension** — Manifest V3 with CDP-based browser automation (all 18 tools)
+1. **Extension** — Manifest V3 with CDP-based browser automation (all 19 tools)
 2. **MCP Server** — Node.js process started by Claude Code, exposes tools via MCP
 3. **Native Messaging Host** — Bridge between the MCP server and the extension
 
@@ -185,7 +185,7 @@ recording:
 
 ### Step 6: Add the server to Claude Code
 
-The **hybrid** server exposes everything: all 18 tools directly, `execute_code`
+The **hybrid** server exposes everything: all 19 tools directly, `execute_code`
 alongside (the model picks per call), and the recording channel.
 
 ```bash
@@ -280,12 +280,12 @@ The hybrid server from Step 6 is the superset and the one the install steps
 assume. Two leaner variants exist if you want them, and they can coexist —
 register more than one.
 
-**Default** — the 18 tools, nothing else:
+**Default** — the 19 tools, nothing else:
 ```bash
 claude mcp add open-claude-in-chrome -- node /absolute/path/to/host/mcp-server.js
 ```
 
-**Code mode** — three tools: `execute_code`, `screenshot`, `zoom`. The model writes JS that calls `chrome.*` (the typed API for all 18 tools) in a sandboxed Cloudflare Worker, collapsing multi-step flows into one round trip:
+**Code mode** — three tools: `execute_code`, `screenshot`, `zoom`. The model writes JS that calls `chrome.*` (the typed API for all 19 tools) in a sandboxed Cloudflare Worker, collapsing multi-step flows into one round trip:
 ```bash
 claude mcp add open-claude-in-chrome-codemode -- node /absolute/path/to/host/codemode/server-codemode.js
 ```
@@ -411,7 +411,7 @@ If the model still uses direct tools on the second submission, that's a signal t
 
 ## Available Tools
 
-All 18 tools, identical to Claude in Chrome:
+All 19 tools, identical to Claude in Chrome:
 
 | Tool | Description |
 |------|-------------|
