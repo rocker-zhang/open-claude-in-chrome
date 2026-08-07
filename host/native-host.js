@@ -294,6 +294,15 @@ function handleWriteTempFile(msg) {
     const b64 = String(msg.dataUrl || "").replace(/^data:[^;]+;base64,/, "");
     if (!b64) return reply({ ok: false, error: "no data" });
     fs.writeFileSync(file, Buffer.from(b64, "base64"));
+    // Best-effort GC: staged uploads are one-shot and never read back, so prune
+    // temp files older than a day to keep the tmp dir from growing unboundedly.
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        const p = path.join(dir, f);
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      }
+    } catch { /* best-effort */ }
     reply({ ok: true, result: file });
   } catch (e) {
     reply({ ok: false, error: String(e && e.message) });
