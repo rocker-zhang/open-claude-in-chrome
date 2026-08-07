@@ -169,6 +169,44 @@ function handleSaveRecording(msg) {
   }
 }
 
+// Overwrite trace.json for a recording (used to persist a re-run transcription
+// from the retranscribe path). Same containment as the other handlers.
+function handleWriteTrace(msg) {
+  try {
+    const dir = path.join(
+      os.homedir(),
+      ".config",
+      "open-claude-in-chrome",
+      "recordings",
+      String(msg.recording_id || "unknown")
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "trace.json"),
+      JSON.stringify(msg.trace ?? {}, null, 2)
+    );
+    // Echo write_id back so the extension can settle the exact caller that
+    // issued this write. Without it, concurrent retranscribe calls for the same
+    // recording_id could not be correlated individually (the reply only carried
+    // recording_id), and one call's timeout or stale reply could settle another's
+    // promise with the wrong result.
+    writeNativeMessage({
+      type: "trace_written",
+      recording_id: msg.recording_id,
+      write_id: msg.write_id,
+      ok: true
+    });
+  } catch (e) {
+    writeNativeMessage({
+      type: "trace_written",
+      recording_id: msg.recording_id,
+      write_id: msg.write_id,
+      ok: false,
+      error: String(e && e.message)
+    });
+  }
+}
+
 // Write one slice of a recording's audio into audio/NNN.webm. Arrives in
 // ~768KB slices (base64 over native messaging) with append=false on the first
 // slice of each segment. This is the artifact that makes a failed transcript
@@ -237,6 +275,10 @@ process.stdin.on("data", (chunk) => {
     }
     if (msg && msg.type === "save_audio") {
       handleSaveAudio(msg);
+      continue;
+    }
+    if (msg && msg.type === "write_trace") {
+      handleWriteTrace(msg);
       continue;
     }
     // Forward everything else to the MCP server via TCP.
