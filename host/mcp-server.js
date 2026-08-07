@@ -6,7 +6,7 @@
 // All of the actual runtime logic (TCP port, native messaging, primary/client
 // multiplexing) lives in host/tool-runtime.js so the codemode + hybrid
 // servers can reuse it without spawning a child process. This file is the
-// stdio MCP front-end: it registers the 18 tools and pipes them to the
+// stdio MCP front-end: it registers the 19 tools and pipes them to the
 // shared runtime.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
