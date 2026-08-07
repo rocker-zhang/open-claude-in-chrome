@@ -216,12 +216,15 @@ async function isInGroup(tabId) {
 // --- CDP helpers ---
 // Chrome (and Chromium generally) throttle a non-visible tab: its compositor
 // stops committing frames, so Input.dispatchMouseEvent to it stalls ~5s. We
-// make a tab the active/selected tab of its window ONLY when it is created —
-// that is the moment the tab we are about to drive must be foreground. We do
-// NOT re-activate on every action, and we NEVER focus/raise the window (that
-// would steal OS focus, which is disruptive when the browser is shared). If a
-// tab is later backgrounded (e.g. the user selects another tab), its input
-// pays the throttle cost until it is foreground again — an accepted tradeoff.
+// make a tab the active/selected tab of its window when it is created — that
+// is the moment the tab we are about to drive must be foreground. We do NOT
+// re-activate on every action, and we NEVER focus/raise the window (that would
+// steal OS focus, which is disruptive when the browser is shared). If a tab is
+// later backgrounded (e.g. the user selects another tab), its input pays the
+// throttle cost until it is foreground again — an accepted tradeoff. The one
+// deliberate exception is takeScreenshot: a backgrounded tab's compositor is
+// throttled, so Page.captureScreenshot stalls and times out; it re-activates
+// the tab (still without raising the window) to wake the compositor.
 async function activateTab(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -421,6 +424,17 @@ const MAX_SCREENSHOT_HEIGHT = 800;
 
 async function takeScreenshot(tabId) {
   await ensureAttached(tabId);
+
+  // A background tab's compositor is throttled by Chrome: frames stop being
+  // committed, so Page.captureScreenshot stalls and hits the ~20s CDP timeout.
+  // Foreground the tab (if it isn't already) to wake the compositor, then give
+  // it a beat to commit a frame before capturing. Only adds latency when the
+  // tab was actually in the background.
+  const shotTab = await chrome.tabs.get(tabId);
+  if (!shotTab.active) {
+    await activateTab(tabId);
+    await new Promise((r) => setTimeout(r, 200));
+  }
 
   // With deviceScaleFactor: 1 set in ensureAttached, screenshots are captured
   // at CSS pixel dimensions (e.g., 1080x746), matching the coordinate space
