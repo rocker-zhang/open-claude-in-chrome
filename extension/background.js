@@ -1166,6 +1166,37 @@ const toolHandlers = {
         return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
+      case "focus_window": {
+        // Explicit, on-demand focus restore. The tool never auto-raises the
+        // window on other actions (that would steal focus during normal use),
+        // so when the agent finds document.hasFocus() === false (user alt-tabbed
+        // away, another window covers the browser) and clicks are not landing,
+        // this is the only way to bring the window back to the foreground.
+        // activateTab only foregrounds the TAB within its own window; it does
+        // not raise the window, so this is a separate, deliberate windows call.
+        try {
+          const t = await chrome.tabs.get(tabId);
+          // Focus the target tab within its own window first: windows.update
+          // focuses the window's ACTIVE tab, not any specific tab, so without
+          // this the OS/DOM focus could land on a different page than the one
+          // the caller is about to interact with.
+          await chrome.tabs.update(tabId, { active: true });
+          const win = await chrome.windows.get(t.windowId);
+          // Give the window OS focus, but only restore a minimized window to
+          // normal — never force a maximized/fullscreen window down to restored
+          // size just to focus it (that would silently change the user's layout).
+          const patch = { focused: true };
+          if (win.state === "minimized") patch.state = "normal";
+          await chrome.windows.update(t.windowId, patch);
+          // A beat for the newly-focused window to become the OS focus target
+          // before the caller's next screenshot/click.
+          await sleep(250);
+          return { content: [{ type: "text", text: "Focused the browser window." }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: `focus_window failed: ${e?.message || e}` }] };
+        }
+      }
+
       case "type": {
         await activateTab(tabId);
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
