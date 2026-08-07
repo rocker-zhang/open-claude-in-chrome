@@ -436,6 +436,17 @@ async function takeScreenshot(tabId) {
   // tab was actually in the background.
   const shotTab = await chrome.tabs.get(tabId);
   if (!shotTab.active) {
+    // A MINIMIZED window stays compositor-throttled even after its tab is
+    // selected — selecting alone wouldn't wake it and the capture would still
+    // time out. Restore a minimized window so it commits frames again. This is
+    // the one place we'll raise a window, and only because the user explicitly
+    // asked to capture that tab.
+    try {
+      const win = await chrome.windows.get(shotTab.windowId);
+      if (win && win.state === "minimized") {
+        await chrome.windows.update(win.id, { state: "normal" });
+      }
+    } catch {}
     await activateTab(tabId);
     await new Promise((r) => setTimeout(r, 200));
   }
