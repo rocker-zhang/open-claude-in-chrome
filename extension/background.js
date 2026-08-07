@@ -216,12 +216,15 @@ async function isInGroup(tabId) {
 // --- CDP helpers ---
 // Chrome (and Chromium generally) throttle a non-visible tab: its compositor
 // stops committing frames, so Input.dispatchMouseEvent to it stalls ~5s. We
-// make a tab the active/selected tab of its window ONLY when it is created —
-// that is the moment the tab we are about to drive must be foreground. We do
-// NOT re-activate on every action, and we NEVER focus/raise the window (that
-// would steal OS focus, which is disruptive when the browser is shared). If a
-// tab is later backgrounded (e.g. the user selects another tab), its input
-// pays the throttle cost until it is foreground again — an accepted tradeoff.
+// make a tab the active/selected tab of its window when it is created — that
+// is the moment the tab we are about to drive must be foreground. We do NOT
+// re-activate on every action, and we NEVER focus/raise the window (that would
+// steal OS focus, which is disruptive when the browser is shared). If a tab is
+// later backgrounded (e.g. the user selects another tab), its input pays the
+// throttle cost until it is foreground again — an accepted tradeoff. The one
+// deliberate exception is takeScreenshot: a backgrounded tab's compositor is
+// throttled, so Page.captureScreenshot stalls and times out; it re-activates
+// the tab (still without raising the window) to wake the compositor.
 async function activateTab(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -425,6 +428,44 @@ const MAX_SCREENSHOT_HEIGHT = 800;
 
 async function takeScreenshot(tabId) {
   await ensureAttached(tabId);
+
+  // A background tab's compositor is throttled by Chrome: frames stop being
+  // committed, so Page.captureScreenshot stalls and hits the ~20s CDP timeout.
+  // Foreground the tab (if it isn't already) to wake the compositor, then give
+  // it a beat to commit a frame before capturing. Only adds latency when the
+  // tab was actually in the background.
+  const shotTab = await chrome.tabs.get(tabId);
+
+  // A MINIMIZED window stays compositor-throttled even after its tab is
+  // selected — selecting alone wouldn't wake it and the capture would still
+  // time out. Restore a minimized window so it commits frames again. This check
+  // must run regardless of whether shotTab is the window's active tab: a
+  // minimized window still reports one active tab (active===true), so gating on
+  // !active would skip the exact case — capturing the active tab of a minimized
+  // window — that most often triggers the timeout. This is the one place we'll
+  // raise a window, and only because the user explicitly asked to capture that
+  // tab.
+  let wokeCompositor = false;
+  try {
+    const win = await chrome.windows.get(shotTab.windowId);
+    if (win && win.state === "minimized") {
+      await chrome.windows.update(win.id, { state: "normal" });
+      wokeCompositor = true;
+    }
+  } catch {}
+
+  if (!shotTab.active) {
+    // Foreground a background tab to wake its throttled compositor, then give
+    // it a beat to commit a frame. Only adds latency when the tab was actually
+    // in the background.
+    await activateTab(tabId);
+  }
+
+  // A beat for the compositor to commit a frame after we woke it (either by
+  // restoring a minimized window or by foregrounding a background tab).
+  if (wokeCompositor || !shotTab.active) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
 
   // With deviceScaleFactor: 1 set in ensureAttached, screenshots are captured
   // at CSS pixel dimensions (e.g., 1080x746), matching the coordinate space
