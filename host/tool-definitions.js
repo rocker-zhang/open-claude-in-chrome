@@ -1,4 +1,4 @@
-// The 18 open-claude-in-chrome tool definitions, extracted as data so both
+// The 19 open-claude-in-chrome tool definitions, extracted as data so both
 // the standard stdio MCP server (host/mcp-server.js) and the codemode +
 // hybrid servers can register them without duplicating the schemas.
 //
