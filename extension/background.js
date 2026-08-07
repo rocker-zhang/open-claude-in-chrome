@@ -237,11 +237,15 @@ async function ensureAttached(tabId) {
   attachedTabs.set(tabId, { enabledDomains: new Set() });
   // Force devicePixelRatio to 1 so screenshots match CSS coordinate space.
   // Without this, Retina displays produce 2x screenshots and all coordinates are wrong.
-  const tab = await chrome.tabs.get(tabId);
-  const win = await chrome.windows.get(tab.windowId);
+  // width/height are set to 0 (override disabled) so we DON'T resize the layout
+  // viewport. Passing win.width/win.height inflates the viewport on multi-monitor
+  // / high-DPI Windows setups, so canvas apps (e.g. casino tables) lay out ~2x
+  // zoomed while devicePixelRatio collapses to 0.5. Pinning only deviceScaleFactor
+  // keeps the page's natural size while still normalizing screenshot scale to CSS
+  // pixels. (resize_window re-applies an explicit width/height override on purpose.)
   await chrome.debugger.sendCommand({ tabId }, "Emulation.setDeviceMetricsOverride", {
-    width: win.width,
-    height: win.height,
+    width: 0,
+    height: 0,
     deviceScaleFactor: 1,
     mobile: false,
   });
