@@ -173,12 +173,16 @@ function handleSaveRecording(msg) {
 // from the retranscribe path). Same containment as the other handlers.
 function handleWriteTrace(msg) {
   try {
+    // Contain the write to the bundle: no absolute paths, no traversal (same
+    // guard as handleSaveAudio).
+    const rid = String(msg.recording_id || "unknown").replace(/\\/g, "/");
+    if (rid.startsWith("/") || rid.split("/").includes("..")) return;
     const dir = path.join(
       os.homedir(),
       ".config",
       "open-claude-in-chrome",
       "recordings",
-      String(msg.recording_id || "unknown")
+      rid
     );
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
@@ -294,11 +298,16 @@ function handleWriteTempFile(msg) {
     const b64 = String(msg.dataUrl || "").replace(/^data:[^;]+;base64,/, "");
     if (!b64) return reply({ ok: false, error: "no data" });
     fs.writeFileSync(file, Buffer.from(b64, "base64"));
-    // Best-effort GC: staged uploads are one-shot and never read back, so prune
-    // temp files older than a day to keep the tmp dir from growing unboundedly.
+    // Best-effort GC: staged uploads have a "<epoch>_<name>" prefix; prune only
+    // files WE staged (that prefix) and only those older than a day, so we never
+    // delete anything another process put in the shared tmp dir. Cap the scan
+    // so a giant directory can't stall this request.
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     try {
+      let scanned = 0;
       for (const f of fs.readdirSync(dir)) {
+        if (!/^\d+_/.test(f)) continue; // not ours
+        if (++scanned > 200) break; // bound the sync scan
         const p = path.join(dir, f);
         if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
       }
